@@ -28,6 +28,8 @@ class FlightTrackingService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private lateinit var repository: FlightRepository
     private lateinit var notificationHelper: NotificationHelper
+    private val notifiedDivertedFlightIds = mutableSetOf<String>()
+    private var isFirstDiversionScan = true
 
     companion object {
         const val TAG = "FlightTrackingService"
@@ -115,20 +117,37 @@ class FlightTrackingService : Service() {
     }
 
     private suspend fun checkAndNotifyTrackedFlights() {
+        val selectedStation = repository.getSelectedAirport().uppercase()
+        // Fetch fresh schedule data for arrivals to monitor status & diversions
+        val arrivals = repository.getArrivals()
+
+        // 1. Check for diverted flights of handled airlines to current station (e.g. COK)
+        // On cold launch, seed existing diverted flights so launching the app never triggers false notifications
+        if (isFirstDiversionScan) {
+            isFirstDiversionScan = false
+            arrivals.filter { it.isDivertedToCok }.forEach { notifiedDivertedFlightIds.add(it.id) }
+        } else {
+            for (flight in arrivals) {
+                // Never notify on mock/fallback flights; notify only when a real flight diverts during active monitoring
+                if (!flight.id.startsWith("fl_") && flight.isDivertedToCok && !notifiedDivertedFlightIds.contains(flight.id)) {
+                    notifiedDivertedFlightIds.add(flight.id)
+                    notificationHelper.sendDiversionAlertNotification(flight, selectedStation)
+                }
+            }
+        }
+
         val trackedList = repository.getAllTrackedSync()
 
         if (trackedList.isEmpty()) {
             val notif = notificationHelper.buildForegroundServiceNotification(
                 followedCount = 0,
-                nextFlightSummary = "Radar feed active. Star a flight on the board to follow live."
+                nextFlightSummary = "Radar feed active ($selectedStation). Star a flight on the board to follow live."
             )
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
             nm.notify(NotificationHelper.FOREGROUND_SERVICE_NOTIFICATION_ID, notif)
             return
         }
 
-        // Fetch fresh schedule data for arrivals to get exact latest ETA
-        val arrivals = repository.getArrivals()
         val arrivalsMap = arrivals.associateBy { it.id }
 
         val nowSec = System.currentTimeMillis() / 1000

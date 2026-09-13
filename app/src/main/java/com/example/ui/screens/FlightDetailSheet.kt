@@ -136,14 +136,14 @@ fun FlightDetailSheet(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = flight.originIata,
+                        text = flight.displayOriginIata,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         fontSize = 22.sp,
                         color = BoardTextPrimary
                     )
                     Text(
-                        text = flight.originCity ?: "Origin",
+                        text = (if (!flight.isArrival && (flight.originCity == null || flight.originCity == "Origin")) "Cochin" else flight.originCity) ?: "Origin",
                         fontSize = 11.sp,
                         color = BoardTextMuted
                     )
@@ -151,16 +151,16 @@ fun FlightDetailSheet(
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = if (flight.isArrival) "ARRIVING" else "DEPARTING",
+                        text = if (flight.isDivertedToCok) "DIVERTED" else if (flight.isArrival) "ARRIVING" else "DEPARTING",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
-                        color = AviationCrimson
+                        color = if (flight.isDivertedToCok) AviationCrimson else AviationAmber
                     )
                     Text(
                         text = "✈ ➔",
                         fontSize = 16.sp,
-                        color = AviationAmber
+                        color = if (flight.isDivertedToCok) AviationCrimson else AviationAmber
                     )
                     Text(
                         text = flight.remainingFormatted,
@@ -173,17 +173,77 @@ fun FlightDetailSheet(
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = flight.destIata,
+                        text = flight.displayDestIata,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         fontSize = 22.sp,
-                        color = BoardTextPrimary
+                        color = if (flight.isDivertedToCok) AviationCrimson else BoardTextPrimary
                     )
                     Text(
-                        text = flight.destCity ?: "Destination",
+                        text = (if (flight.isArrival && (flight.destCity == null || flight.destCity == "Destination")) "Cochin" else flight.destCity) ?: "Destination",
                         fontSize = 11.sp,
                         color = BoardTextMuted
                     )
+                }
+            }
+
+            if (flight.isDivertedToCok) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(AviationCrimson.copy(alpha = 0.15f))
+                        .border(1.dp, AviationCrimson, RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = "🚨", fontSize = 18.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "TACTICAL HEADS-UP: FLIGHT DIVERTED TO COK",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = AviationCrimson
+                            )
+                            Text(
+                                text = "Original Destination: ${flight.destIata} (${flight.destCity ?: "Scheduled Station"}). Inbound diversion to Cochin airport in progress.",
+                                fontSize = 10.sp,
+                                color = BoardTextPrimary
+                            )
+                        }
+                    }
+                }
+            } else if (flight.isYetToArriveDelayed) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(AviationAmber.copy(alpha = 0.12f))
+                        .border(1.dp, AviationAmber, RoundedCornerShape(8.dp))
+                        .padding(10.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(text = "⏳", fontSize = 16.sp)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "LAGGING / DELAYED ARRIVAL",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = AviationAmber
+                            )
+                            Text(
+                                text = "Scheduled arrival was ${formatTimeIST(flight.scheduledTime)} IST. Flight is delayed en route and yet to arrive (ETA ${formatTimeIST(flight.bestEta)} IST).",
+                                fontSize = 10.sp,
+                                color = BoardTextPrimary
+                            )
+                        }
+                    }
                 }
             }
 

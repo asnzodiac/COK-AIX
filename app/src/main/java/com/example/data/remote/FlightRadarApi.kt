@@ -2,7 +2,10 @@ package com.example.data.remote
 
 import android.util.Log
 import com.example.data.model.Flight
+import com.example.data.util.AirportUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -112,12 +115,49 @@ class FlightRadarApi {
 
         fun getAirlineLogoUrl(flightNumber: String): String {
             val code = flightNumber.trim().take(2).uppercase()
-            return "https://pics.avs.io/200/80/$code.png"
+            return when (code) {
+                "J9" -> "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/6d/Jazeera_Airways_logo.svg/250px-Jazeera_Airways_logo.svg.png"
+                "AK", "FD" -> "https://cdn.flightradar24.com/assets/airlines/logotypes/25.png"
+                else -> "https://pics.avs.io/200/80/$code.png"
+            }
         }
     }
 
-    suspend fun fetchAirportSchedule(airport: String = DEFAULT_AIRPORT, mode: String = "arrivals", timestampSec: Long? = null): List<Flight> = withContext(Dispatchers.IO) {
-        val ts = timestampSec ?: (System.currentTimeMillis() / 1000)
+    suspend fun fetchAirportScheduleMultiWindow(
+        airport: String = DEFAULT_AIRPORT,
+        mode: String = "arrivals",
+        baseTimestampSec: Long? = null,
+        includeEarlierWindow: Boolean = true
+    ): List<Flight> = withContext(Dispatchers.IO) {
+        val baseTs = baseTimestampSec ?: (System.currentTimeMillis() / 1000)
+        // Multi-window logic matching asnzodiac.github.io/AIX_COK:
+        // Window -1: past 6 hours (fetches delayed flights scheduled up to 5h ago yet to arrive)
+        // Windows 0, 1, 2, 3: covers current time up to +24 hours ahead
+        val windowOffsets = if (includeEarlierWindow) listOf(-1, 0, 1, 2, 3) else listOf(0, 1, 2, 3)
+        val deferred = windowOffsets.map { offset ->
+            async {
+                val ts = baseTs + offset * 6 * 3600
+                fetchAirportScheduleForTimestamp(airport, mode, ts)
+            }
+        }
+        val allLists = deferred.awaitAll()
+        val combined = allLists.flatten()
+        com.example.data.util.AirportUtils.deduplicateFlights(combined)
+    }
+
+    suspend fun fetchAirportSchedule(
+        airport: String = DEFAULT_AIRPORT,
+        mode: String = "arrivals",
+        timestampSec: Long? = null
+    ): List<Flight> {
+        return fetchAirportScheduleMultiWindow(airport, mode, timestampSec, includeEarlierWindow = true)
+    }
+
+    private suspend fun fetchAirportScheduleForTimestamp(
+        airport: String,
+        mode: String,
+        ts: Long
+    ): List<Flight> = withContext(Dispatchers.IO) {
         val rawUrl = "https://api.flightradar24.com/common/v1/airport.json?code=${airport.lowercase()}&plugin-setting[schedule][mode]=$mode&plugin-setting[schedule][timestamp]=$ts&limit=100"
 
         val candidates = listOf(
@@ -137,7 +177,7 @@ class FlightRadarApi {
                 client.newCall(req).execute().use { res ->
                     if (res.isSuccessful) {
                         val body = res.body?.string() ?: return@use
-                        val parsed = parseScheduleJson(body, mode == "arrivals")
+                        val parsed = parseScheduleJson(body, mode == "arrivals", airport)
                         if (parsed.isNotEmpty()) {
                             return@withContext parsed
                         }
@@ -150,7 +190,27 @@ class FlightRadarApi {
         emptyList()
     }
 
-    private fun parseScheduleJson(raw: String, isArrival: Boolean): List<Flight> {
+    fun isInOperationalWindow(isArrival: Boolean, sch: Long, est: Long, act: Long, statusText: String): Boolean {
+        val now = System.currentTimeMillis() / 1000
+        val targetTime = if (est > 0) est else sch
+        val fiveHoursAgo = now - 18000 // 5 hours earlier (18000s)
+        val twentyHoursAhead = now + 72000 // 20 hours ahead (72000s)
+
+        // 1. Standard operational window (-5h to +20h)
+        val inRange = targetTime in fiveHoursAgo..twentyHoursAhead
+
+        // 2. Delayed flights yet to arrive: scheduled up to 5 hours earlier (sch in fiveHoursAgo..now),
+        // but haven't landed/arrived yet (act == 0L || act > now), not cancelled
+        val isLaggingDelayed = (sch in fiveHoursAgo..now) && (act == 0L || act > now) &&
+                !statusText.lowercase().contains("cancel")
+
+        // 3. Recently landed / completed (within last 3 hours for arrivals, 30 min for departures)
+        val recent = if (isArrival) (act in (now - 10800)..now) else (act in (now - 1800)..now)
+
+        return inRange || isLaggingDelayed || recent
+    }
+
+    fun parseScheduleJson(raw: String, isArrival: Boolean, currentStation: String = DEFAULT_AIRPORT): List<Flight> {
         val results = mutableListOf<Flight>()
         try {
             val i = raw.indexOf('{')
@@ -166,7 +226,8 @@ class FlightRadarApi {
             val listKey = if (isArrival) "arrivals" else "departures"
             val array = scheduleObj.optJSONObject(listKey)?.optJSONArray("data") ?: return emptyList()
 
-            val now = System.currentTimeMillis() / 1000
+            val stationUpper = currentStation.uppercase().trim()
+            val defaultStationCity = AirportUtils.getCityForAirport(stationUpper) ?: "Cochin"
 
             for (idx in 0 until array.length()) {
                 val item = array.optJSONObject(idx) ?: continue
@@ -181,19 +242,62 @@ class FlightRadarApi {
                 val est = timeObj?.optJSONObject("estimated")?.optLong(schKey, 0L) ?: 0L
                 val act = timeObj?.optJSONObject("actual")?.optLong(schKey, 0L) ?: 0L
 
+                val sanitizedFlt = flightNumber.replace("\\s+".toRegex(), "").uppercase()
                 val rawId = identObj?.optString("id")?.trim()
                 val fid = if (rawId.isNullOrBlank() || rawId.equals("null", ignoreCase = true)) {
-                    val sanitizedFlt = flightNumber.replace("\\s+".toRegex(), "")
-                    "${sanitizedFlt}_${sch}_${idx}_${if (isArrival) "ARR" else "DEP"}"
+                    val effectiveTime = if (sch > 0) sch else if (est > 0) est else 0L
+                    "${sanitizedFlt}_${effectiveTime}_${if (isArrival) "ARR" else "DEP"}"
                 } else {
                     rawId
                 }
                 val rawCallsign = identObj?.optJSONObject("callsign")?.optString("default")?.trim()
                 val callsign = if (rawCallsign.isNullOrBlank() || rawCallsign.equals("null", ignoreCase = true)) null else rawCallsign
 
-                val timeRelevant = if (est > 0) est else sch
-                // Filter flights within operational window (-2h to +20h)
-                if (timeRelevant > 0 && (timeRelevant < now - 7200 || timeRelevant > now + 72000)) {
+                val statusObj = flightObj.optJSONObject("status")
+                val rawStatus = statusObj?.optString("text")?.trim()
+                val genericStatus = statusObj?.optJSONObject("generic")?.optJSONObject("status")?.optString("text")?.trim()
+                var statusText = when {
+                    !rawStatus.isNullOrBlank() && !rawStatus.equals("null", ignoreCase = true) -> rawStatus
+                    !genericStatus.isNullOrBlank() && !genericStatus.equals("null", ignoreCase = true) -> genericStatus
+                    else -> "–"
+                }
+
+                val airportObj = flightObj.optJSONObject("airport")
+                val rawOrig = airportObj?.optJSONObject("origin")?.optJSONObject("code")?.optString("iata")?.trim()
+                val rawOrigCity = airportObj?.optJSONObject("origin")?.optJSONObject("position")?.optJSONObject("region")?.optString("city")?.takeIf { it != "null" && it.isNotBlank() }
+
+                val rawDest = airportObj?.optJSONObject("destination")?.optJSONObject("code")?.optString("iata")?.trim()
+                val rawDestCity = airportObj?.optJSONObject("destination")?.optJSONObject("position")?.optJSONObject("region")?.optString("city")?.takeIf { it != "null" && it.isNotBlank() }
+
+                // Origin & Destination resolution (Departures originate from current station, NEVER "???")
+                val originIata: String
+                val originCity: String?
+                val destIata: String
+                val destCity: String?
+
+                if (isArrival) {
+                    originIata = if (rawOrig.isNullOrBlank() || rawOrig.equals("null", ignoreCase = true) || rawOrig == "???") "???" else rawOrig
+                    originCity = rawOrigCity ?: AirportUtils.getCityForAirport(originIata)
+                    destIata = if (rawDest.isNullOrBlank() || rawDest.equals("null", ignoreCase = true) || rawDest == "???") stationUpper else rawDest
+                    destCity = rawDestCity ?: AirportUtils.getCityForAirport(destIata) ?: defaultStationCity
+                } else {
+                    // For Departures: From station is the collecting/selected station (e.g. COK), NEVER "???"
+                    originIata = if (rawOrig.isNullOrBlank() || rawOrig.equals("null", ignoreCase = true) || rawOrig == "???") stationUpper else rawOrig
+                    originCity = rawOrigCity ?: AirportUtils.getCityForAirport(originIata) ?: defaultStationCity
+                    destIata = if (rawDest.isNullOrBlank() || rawDest.equals("null", ignoreCase = true) || rawDest == "???") "???" else rawDest
+                    destCity = rawDestCity ?: AirportUtils.getCityForAirport(destIata)
+                }
+
+                // Check for flight diversion to current station:
+                val isDivertedStatus = statusText.contains("divert", ignoreCase = true) ||
+                        statusText.contains("dvt", ignoreCase = true) ||
+                        (genericStatus?.contains("divert", ignoreCase = true) == true)
+                if (isDivertedStatus && !statusText.contains("divert", ignoreCase = true)) {
+                    statusText = "Diverted to $stationUpper"
+                }
+
+                // Filter flights within operational window (-5h delayed/yet-to-arrive to +20h ahead)
+                if (!isInOperationalWindow(isArrival, sch, est, act, statusText)) {
                     continue
                 }
 
@@ -203,18 +307,6 @@ class FlightRadarApi {
                 val modelObj = aircraftObj?.optJSONObject("model")
                 val rawModel = (modelObj?.optString("code") ?: modelObj?.optString("text"))?.trim()
                 val model = if (rawModel.isNullOrBlank() || rawModel.equals("null", ignoreCase = true)) "–" else rawModel
-
-                val airportObj = flightObj.optJSONObject("airport")
-                val rawOrig = airportObj?.optJSONObject("origin")?.optJSONObject("code")?.optString("iata")?.trim()
-                val originIata = if (rawOrig.isNullOrBlank() || rawOrig.equals("null", ignoreCase = true)) "???" else rawOrig
-                val originCity = airportObj?.optJSONObject("origin")?.optJSONObject("position")?.optJSONObject("region")?.optString("city")?.takeIf { it != "null" }
-                val rawDest = airportObj?.optJSONObject("destination")?.optJSONObject("code")?.optString("iata")?.trim()
-                val destIata = if (rawDest.isNullOrBlank() || rawDest.equals("null", ignoreCase = true)) "COK" else rawDest
-                val destCity = airportObj?.optJSONObject("destination")?.optJSONObject("position")?.optJSONObject("region")?.optString("city")?.takeIf { it != "null" }
-
-                val statusObj = flightObj.optJSONObject("status")
-                val rawStatus = statusObj?.optString("text")?.trim()
-                val statusText = if (rawStatus.isNullOrBlank() || rawStatus.equals("null", ignoreCase = true)) "–" else rawStatus
 
                 val delayMin = if (sch > 0 && est > 0) ((est - sch) / 60).toInt() else 0
 

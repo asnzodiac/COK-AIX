@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SwapHoriz
@@ -40,6 +40,7 @@ import com.example.ui.theme.AviationAmber
 import com.example.ui.theme.AviationCrimson
 import com.example.ui.theme.AviationEmerald
 import com.example.ui.theme.AviationRed
+import com.example.ui.theme.AviationTeal
 import com.example.ui.theme.AviationYellow
 import com.example.ui.theme.BoardBackground
 import com.example.ui.theme.BoardBorder
@@ -89,7 +90,7 @@ fun TurnaroundScreen(
                         color = BoardTextPrimary
                     )
                     Text(
-                        text = "Matching inbound tail numbers with outbound legs to identify ground time buffers and delay spillovers.",
+                        text = "Turnaround Standards: Domestic = 30m normal · International = 60m normal. Matches inbound tail numbers to identify ground time buffers & delay spillover.",
                         fontSize = 11.sp,
                         color = BoardTextMuted,
                         lineHeight = 15.sp
@@ -170,12 +171,12 @@ fun TurnaroundScreen(
                     .testTag("turnaround_list"),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                itemsIndexed(
+                items(
                     items = turnarounds,
-                    key = { index, turn ->
-                        "${turn.registration}_${turn.arrivalFlight.id}_${turn.departureFlight.id}_$index"
+                    key = { turn ->
+                        "${turn.registration}_${turn.arrivalFlight.id}_${turn.departureFlight.id}"
                     }
-                ) { _, turn ->
+                ) { turn ->
                     val statusColor = when (turn.status) {
                         TurnaroundStatus.NORMAL -> AviationEmerald
                         TurnaroundStatus.TIGHT -> AviationYellow
@@ -184,9 +185,9 @@ fun TurnaroundScreen(
                     }
 
                     val statusLabel = when (turn.status) {
-                        TurnaroundStatus.NORMAL -> "Normal (${turn.gapMinutes}m)"
-                        TurnaroundStatus.TIGHT -> "Tight Turn (${turn.gapMinutes}m)"
-                        TurnaroundStatus.CRITICAL_TIGHT -> "Critical (${turn.gapMinutes}m)"
+                        TurnaroundStatus.NORMAL -> "Normal (${turn.gapMinutes}m / ${turn.standardTurnaroundMinutes}m std)"
+                        TurnaroundStatus.TIGHT -> "Tight Turn (${turn.gapMinutes}m / ${turn.standardTurnaroundMinutes}m std)"
+                        TurnaroundStatus.CRITICAL_TIGHT -> "Critical (${turn.gapMinutes}m / ${turn.standardTurnaroundMinutes}m std)"
                         TurnaroundStatus.DELAY_RISK -> "Delay Spillover"
                     }
 
@@ -199,7 +200,7 @@ fun TurnaroundScreen(
                             .padding(12.dp)
                     ) {
                         Column {
-                            // Top Row: Registration, Aircraft Type, Status Badge
+                            // Top Row: Registration, Aircraft Type, Sector Type (Domestic/Intl), Status Badge
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -220,6 +221,22 @@ fun TurnaroundScreen(
                                         fontSize = 11.sp,
                                         color = BoardTextDim
                                     )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    // Domestic (30m) or International (60m) badge
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(3.dp))
+                                            .background(if (turn.isDomestic) AviationTeal.copy(alpha = 0.2f) else AviationCrimson.copy(alpha = 0.2f))
+                                            .padding(horizontal = 5.dp, vertical = 1.dp)
+                                    ) {
+                                        Text(
+                                            text = "${turn.sectorType} · ${turn.standardTurnaroundMinutes}m",
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (turn.isDomestic) AviationTeal else AviationCrimson
+                                        )
+                                    }
                                 }
 
                                 Box(
@@ -227,7 +244,7 @@ fun TurnaroundScreen(
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(statusColor.copy(alpha = 0.15f))
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
+                                    ) {
                                     Text(
                                         text = statusLabel,
                                         fontFamily = FontFamily.Monospace,
@@ -238,7 +255,30 @@ fun TurnaroundScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // Ground time buffer summary line
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Turn Ground Time: ${turn.gapMinutes} min",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    color = BoardTextMuted
+                                )
+                                Text(
+                                    text = if (turn.bufferMinutes >= 0) "+${turn.bufferMinutes}m buffer" else "${turn.bufferMinutes}m deficit",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (turn.bufferMinutes >= 0) AviationEmerald else AviationRed
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
 
                             // Inbound Leg Card
                             Row(
@@ -261,7 +301,7 @@ fun TurnaroundScreen(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "${turn.arrivalFlight.flightNumber} (${turn.arrivalFlight.originIata} ➔ COK)",
+                                        text = "${turn.arrivalFlight.flightNumber} (${turn.arrivalFlight.displayOriginIata} ➔ ${turn.arrivalFlight.displayDestIata})",
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -301,7 +341,7 @@ fun TurnaroundScreen(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "${turn.departureFlight.flightNumber} (COK ➔ ${turn.departureFlight.destIata})",
+                                        text = "${turn.departureFlight.flightNumber} (${turn.departureFlight.displayOriginIata} ➔ ${turn.departureFlight.displayDestIata})",
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.SemiBold,

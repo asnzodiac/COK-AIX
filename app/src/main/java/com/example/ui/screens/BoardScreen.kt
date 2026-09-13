@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
@@ -74,7 +74,14 @@ fun BoardScreen(
 ) {
     var showArrivals by remember { mutableStateOf(true) }
 
-    val rawList = if (showArrivals) arrivals else departures
+    val rawList = remember(showArrivals, arrivals, departures, handledAirlines) {
+        val list = if (showArrivals) arrivals else departures
+        com.example.data.util.AirportUtils.deduplicateFlights(list, handledAirlines)
+    }
+
+    val divertedFlights = remember(arrivals, handledAirlines) {
+        com.example.data.util.AirportUtils.deduplicateFlights(arrivals, handledAirlines).filter { it.isDivertedToCok }
+    }
 
     val filteredList = remember(rawList, searchQuery, selectedAirline) {
         rawList.filter { flight ->
@@ -83,10 +90,11 @@ fun BoardScreen(
             val matchesSearch = q.isEmpty() ||
                     flight.flightNumber.lowercase().contains(q) ||
                     flight.registration.lowercase().contains(q) ||
-                    flight.originIata.lowercase().contains(q) ||
-                    flight.destIata.lowercase().contains(q) ||
+                    flight.displayOriginIata.lowercase().contains(q) ||
+                    flight.displayDestIata.lowercase().contains(q) ||
                     (flight.originCity?.lowercase()?.contains(q) == true) ||
-                    (flight.destCity?.lowercase()?.contains(q) == true)
+                    (flight.destCity?.lowercase()?.contains(q) == true) ||
+                    flight.statusText.lowercase().contains(q)
             matchesAirline && matchesSearch
         }
     }
@@ -171,6 +179,84 @@ fun BoardScreen(
                         fontWeight = FontWeight.Bold,
                         color = if (!showArrivals) Color.White else BoardTextMuted
                     )
+                }
+            }
+        }
+
+        // Diverted to COK Heads-up Alert Banner
+        if (divertedFlights.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(10.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(AviationCrimson.copy(alpha = 0.12f))
+                    .border(1.5.dp, AviationCrimson.copy(alpha = 0.8f), RoundedCornerShape(8.dp))
+                    .padding(10.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = "🚨", fontSize = 16.sp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "DIVERTED TO COK HEADS-UP (${divertedFlights.size})",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                color = AviationCrimson
+                            )
+                        }
+                        Text(
+                            text = "TACTICAL ALERT",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AviationCrimson
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    divertedFlights.forEach { divFlight ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(BoardSurface)
+                                .clickable { onFlightClick(divFlight) }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = divFlight.flightNumber,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = AviationAmber
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "${divFlight.displayOriginIata} ➔ Diverted to COK",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 10.sp,
+                                    color = BoardTextPrimary
+                                )
+                            }
+                            Text(
+                                text = "ETA ${formatTimeIST(divFlight.bestEta)}",
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = AviationCrimson
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
                 }
             }
         }
@@ -350,14 +436,12 @@ fun BoardScreen(
                     .testTag("flight_list"),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                itemsIndexed(
+                items(
                     items = filteredList,
-                    key = { index, flight ->
-                        val cleanId = flight.id.takeIf { it.isNotBlank() && it != "null" }
-                            ?: "${flight.flightNumber.replace(" ", "")}_${flight.scheduledTime}"
-                        "${cleanId}_${flight.isArrival}_$index"
+                    key = { flight ->
+                        "${flight.id}_${flight.isArrival}"
                     }
-                ) { _, flight ->
+                ) { flight ->
                     FlightCardItem(
                         flight = flight,
                         onTrackClick = onTrackClick,

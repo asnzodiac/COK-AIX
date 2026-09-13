@@ -9,6 +9,7 @@ import com.example.data.model.Flight
 import com.example.data.model.Turnaround
 import com.example.data.remote.DiscordWebhookClient
 import com.example.data.remote.FlightRadarApi
+import com.example.data.util.AirportUtils
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 
@@ -98,14 +99,16 @@ class FlightRepository(private val context: Context) {
         val live = api.fetchAirportSchedule(airport, "arrivals")
         val raw = if (live.isNotEmpty()) live else getFallbackArrivals(airport)
         val handled = getHandledAirlines()
-        return raw.filter { isAirlineHandled(it.flightNumber, it.airlineCode, handled) }
+        val filtered = raw.filter { isAirlineHandled(it.flightNumber, it.airlineCode, handled) }
+        return AirportUtils.deduplicateFlights(filtered, handled)
     }
 
     suspend fun getDepartures(airport: String = getSelectedAirport()): List<Flight> {
         val live = api.fetchAirportSchedule(airport, "departures")
         val raw = if (live.isNotEmpty()) live else getFallbackDepartures(airport)
         val handled = getHandledAirlines()
-        return raw.filter { isAirlineHandled(it.flightNumber, it.airlineCode, handled) }
+        val filtered = raw.filter { isAirlineHandled(it.flightNumber, it.airlineCode, handled) }
+        return AirportUtils.deduplicateFlights(filtered, handled)
     }
 
     private fun getFallbackArrivals(airport: String): List<Flight> {
@@ -114,6 +117,57 @@ class FlightRepository(private val context: Context) {
         val targetDest = if (isCok) "COK" else airport.uppercase()
 
         return listOf(
+            Flight(
+                id = "fl_arr_div_1",
+                flightNumber = "IX 384",
+                callsign = "AXB384",
+                registration = "VT-AYB",
+                originIata = "DXB",
+                originCity = "Dubai",
+                destIata = targetDest,
+                destCity = "Cochin",
+                scheduledTime = now + 1200,
+                estimatedTime = now + 780,
+                aircraftModel = "B738",
+                statusText = "Approaching (FL040)",
+                delayMinutes = 0,
+                airlineCode = "IX",
+                airlineName = "Air India Express",
+                logoUrl = FlightRadarApi.getAirlineLogoUrl("IX 384"),
+                isArrival = true,
+                liveLatitude = 10.20,
+                liveLongitude = 76.15,
+                liveHeading = 120f,
+                liveAltitudeFt = 4000,
+                liveSpeedKts = 230,
+                liveIsAirborne = true
+            ),
+            Flight(
+                id = "fl_arr_lag_1",
+                flightNumber = "IX 542",
+                callsign = "AXB542",
+                registration = "VT-AYD",
+                originIata = "MCT",
+                originCity = "Muscat",
+                destIata = targetDest,
+                destCity = "Cochin",
+                scheduledTime = now - 7200, // Scheduled 2 hours ago (lagging delayed flight)
+                estimatedTime = now + 1200, // Estimated in 20 min (yet to arrive)
+                actualTime = 0L,
+                aircraftModel = "B738",
+                statusText = "Delayed / En Route (FL280)",
+                delayMinutes = 140,
+                airlineCode = "IX",
+                airlineName = "Air India Express",
+                logoUrl = FlightRadarApi.getAirlineLogoUrl("IX 542"),
+                isArrival = true,
+                liveLatitude = 10.85,
+                liveLongitude = 75.40,
+                liveHeading = 135f,
+                liveAltitudeFt = 28000,
+                liveSpeedKts = 430,
+                liveIsAirborne = true
+            ),
             Flight(
                 id = "fl_arr_1",
                 flightNumber = "IX 434",
@@ -349,6 +403,25 @@ class FlightRepository(private val context: Context) {
         val targetOrigin = if (isCok) "COK" else airport.uppercase()
 
         return listOf(
+            Flight(
+                id = "fl_dep_dom_1",
+                flightNumber = "IX 1120",
+                callsign = "AXB1120",
+                registration = "VT-AYD", // Pairs with IX 542 (VT-AYD) - 35 min turnaround (Domestic std: 30m)!
+                originIata = targetOrigin,
+                originCity = "Cochin",
+                destIata = "BLR",
+                destCity = "Bengaluru",
+                scheduledTime = now + 3300,
+                estimatedTime = now + 3300,
+                aircraftModel = "B738",
+                statusText = "Domestic Turn / Boarding",
+                delayMinutes = 0,
+                airlineCode = "IX",
+                airlineName = "Air India Express",
+                logoUrl = FlightRadarApi.getAirlineLogoUrl("IX 1120"),
+                isArrival = false
+            ),
             Flight(
                 id = "fl_dep_1",
                 flightNumber = "IX 473",
@@ -598,12 +671,15 @@ class FlightRepository(private val context: Context) {
     }
 
     fun computeTurnarounds(arrivals: List<Flight>, departures: List<Flight>): List<Turnaround> {
-        val arrByReg = arrivals.filter { it.registration != "–" && it.registration.isNotBlank() }
-            .groupBy { it.registration }
-        val depByReg = departures.filter { it.registration != "–" && it.registration.isNotBlank() }
-            .groupBy { it.registration }
+        val cleanArr = AirportUtils.deduplicateFlights(arrivals)
+        val cleanDep = AirportUtils.deduplicateFlights(departures)
+        val arrByReg = cleanArr.filter { it.registration != "–" && it.registration.isNotBlank() }
+            .groupBy { it.registration.trim().uppercase() }
+        val depByReg = cleanDep.filter { it.registration != "–" && it.registration.isNotBlank() }
+            .groupBy { it.registration.trim().uppercase() }
 
         val turnarounds = mutableListOf<Turnaround>()
+        val pairedDepIds = mutableSetOf<String>()
 
         for ((reg, arrList) in arrByReg) {
             val depList = depByReg[reg] ?: continue
@@ -611,27 +687,33 @@ class FlightRepository(private val context: Context) {
             val sortedDep = depList.sortedBy { it.bestEta }
 
             for (arr in sortedArr) {
-                for (dep in sortedDep) {
-                    val gapSeconds = dep.bestEta - arr.bestEta
-                    val gapMinutes = (gapSeconds / 60).toInt()
-                    // Typical ground turnaround window: 0 to 180 min (3 hours)
-                    if (gapMinutes in 1..180) {
-                        val maxDelay = maxOf(arr.delayMinutes, dep.delayMinutes)
-                        turnarounds.add(
-                            Turnaround(
-                                registration = reg,
-                                arrivalFlight = arr,
-                                departureFlight = dep,
-                                gapMinutes = gapMinutes,
-                                aircraftModel = arr.aircraftModel.ifBlank { dep.aircraftModel },
-                                maxDelayMinutes = maxDelay
-                            )
-                        )
-                    }
-                }
+                // Find the first departure after this arrival within 180 min that has not been paired
+                val dep = sortedDep.firstOrNull { candidate ->
+                    !pairedDepIds.contains(candidate.id) &&
+                    candidate.bestEta >= arr.bestEta &&
+                    (candidate.bestEta - arr.bestEta) in 60..10800 // 1 to 180 min
+                } ?: continue
+
+                pairedDepIds.add(dep.id)
+                val gapSeconds = dep.bestEta - arr.bestEta
+                val gapMinutes = (gapSeconds / 60).toInt()
+                val maxDelay = maxOf(arr.delayMinutes, dep.delayMinutes)
+                val isDomestic = AirportUtils.isIndianDomestic(dep.destIata, dep.destCity)
+                turnarounds.add(
+                    Turnaround(
+                        registration = reg,
+                        arrivalFlight = arr,
+                        departureFlight = dep,
+                        gapMinutes = gapMinutes,
+                        aircraftModel = arr.aircraftModel.ifBlank { dep.aircraftModel },
+                        maxDelayMinutes = maxDelay,
+                        isDomestic = isDomestic
+                    )
+                )
             }
         }
 
-        return turnarounds.sortedBy { it.arrivalFlight.bestEta }
+        return turnarounds.distinctBy { "${it.registration}_${it.arrivalFlight.flightNumber}_${it.departureFlight.flightNumber}" }
+            .sortedBy { it.arrivalFlight.bestEta }
     }
 }

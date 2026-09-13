@@ -55,6 +55,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import com.example.R
 import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import com.example.data.model.Flight
@@ -281,6 +284,11 @@ fun AirlineLogoBadge(
     val brandColor = remember(code) { getAirlineBrandColor(code) }
     val effectiveUrl = logoUrl ?: FlightRadarApi.getAirlineLogoUrl(code)
 
+    val localDrawableRes = when (code) {
+        "J9" -> R.drawable.ic_airline_j9
+        else -> null
+    }
+
     Box(
         modifier = modifier
             .width(width)
@@ -291,40 +299,49 @@ fun AirlineLogoBadge(
             .padding(horizontal = 3.dp, vertical = 1.dp),
         contentAlignment = Alignment.Center
     ) {
-        SubcomposeAsyncImage(
-            model = effectiveUrl,
-            contentDescription = airlineName,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.fillMaxSize(),
-            loading = {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = code,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 10.sp,
-                        color = brandColor
-                    )
+        if (localDrawableRes != null) {
+            Image(
+                painter = painterResource(id = localDrawableRes),
+                contentDescription = airlineName,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            SubcomposeAsyncImage(
+                model = effectiveUrl,
+                contentDescription = airlineName,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
+                loading = {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = code,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            color = brandColor
+                        )
+                    }
+                },
+                error = {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = code,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            color = brandColor
+                        )
+                    }
                 }
-            },
-            error = {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = code,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 10.sp,
-                        color = brandColor
-                    )
-                }
-            }
-        )
+            )
+        }
     }
 }
 
@@ -336,6 +353,7 @@ fun FlightCardItem(
     modifier: Modifier = Modifier
 ) {
     val statusColor = when (flight.statusCategory) {
+        FlightStatusCategory.DIVERTED -> AviationCrimson
         FlightStatusCategory.ON_TIME -> AviationEmerald
         FlightStatusCategory.DELAYED -> AviationYellow
         FlightStatusCategory.HEAVY_DELAY -> AviationRed
@@ -421,7 +439,7 @@ fun FlightCardItem(
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = flight.originIata,
+                        text = flight.displayOriginIata,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
@@ -433,22 +451,42 @@ fun FlightCardItem(
                         color = BoardTextDim
                     )
                     Text(
-                        text = flight.destIata,
+                        text = flight.displayDestIata,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
-                        color = BoardTextPrimary
+                        color = if (flight.isDivertedToCok) AviationCrimson else BoardTextPrimary
                     )
                 }
                 Spacer(modifier = Modifier.height(2.dp))
-                val cityText = (if (flight.isArrival) flight.originCity else flight.destCity) ?: ""
-                Text(
-                    text = cityText.ifBlank { if (flight.isArrival) "Inbound" else "Outbound" },
-                    fontSize = 10.sp,
-                    color = BoardTextMuted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                if (flight.isDivertedToCok) {
+                    Text(
+                        text = "🚨 DIVERTED TO COK",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AviationCrimson,
+                        maxLines = 1
+                    )
+                } else if (flight.isYetToArriveDelayed) {
+                    Text(
+                        text = "⏳ LAGGING / PAST SCH",
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AviationAmber,
+                        maxLines = 1
+                    )
+                } else {
+                    val cityText = (if (flight.isArrival) flight.originCity else flight.destCity) ?: ""
+                    Text(
+                        text = cityText.ifBlank { if (flight.isArrival) "Inbound" else "Outbound" },
+                        fontSize = 10.sp,
+                        color = BoardTextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
             // ETA / ETD & Status

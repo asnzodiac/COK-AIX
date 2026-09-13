@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -385,15 +385,14 @@ fun TrackedScreen(
                     .testTag("tracked_flights_list"),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                itemsIndexed(
+                items(
                     items = trackedEntities,
-                    key = { index, entity ->
-                        val cleanId = entity.flightId.takeIf { it.isNotBlank() && it != "null" }
-                            ?: "${entity.flightNumber.replace(" ", "")}_${entity.scheduledTime}"
-                        "${cleanId}_$index"
-                    }
-                ) { _, entity ->
-                    val flight = flightsMap[entity.flightId] ?: Flight(
+                    key = { it.flightId }
+                ) { entity ->
+                    val flight = flightsMap[entity.flightId] ?: allFlights.find {
+                        it.isArrival == entity.isArrival &&
+                        com.example.data.util.AirportUtils.normalizeFlightNumber(it.flightNumber) == com.example.data.util.AirportUtils.normalizeFlightNumber(entity.flightNumber)
+                    } ?: Flight(
                         id = entity.flightId,
                         flightNumber = entity.flightNumber,
                         registration = entity.registration,

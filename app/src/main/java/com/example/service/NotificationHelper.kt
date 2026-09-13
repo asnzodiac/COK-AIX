@@ -201,6 +201,37 @@ class NotificationHelper(private val context: Context) {
         notificationManager.notify(alertId, notification)
     }
 
+    fun sendDiversionAlertNotification(flight: Flight, targetAirport: String = "COK") {
+        val launchIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            flight.id.hashCode() + 3,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val title = "🚨 FLIGHT DIVERTED TO ${targetAirport.uppercase()}: ${flight.flightNumber}"
+        val message = "Tactical Alert: Flight ${flight.flightNumber} (${flight.airlineName}) en route ${flight.displayOriginIata} ➔ ${flight.destIata} is DIVERTING to ${targetAirport.uppercase()}!\nReg: ${flight.registration} · Status: ${flight.statusText}"
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_ALERTS_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle(title)
+            .setContentText("${flight.flightNumber} diverted to ${targetAirport.uppercase()} (Original dest: ${flight.destIata})")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        val alertId = 7000 + (flight.id.hashCode() and 0xFFFF)
+        notificationManager.notify(alertId, notification)
+
+        playAlertChime()
+    }
+
     fun removeFlightLiveActivity(flightId: String) {
         val notifId = 2000 + (flightId.hashCode() and 0xFFFF)
         notificationManager.cancel(notifId)

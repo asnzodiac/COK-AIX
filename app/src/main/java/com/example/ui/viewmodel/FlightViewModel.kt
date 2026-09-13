@@ -92,12 +92,27 @@ class FlightViewModel(application: Application) : AndroidViewModel(application) 
             _uiState.update { it.copy(isLoading = true, errorMessage = null) }
             try {
                 val airport = _uiState.value.selectedAirport
+                val handled = _uiState.value.handledAirlines
                 val arr = repository.getArrivals(airport)
                 val dep = repository.getDepartures(airport)
 
-                val trackedIds = trackedFlights.value.map { it.flightId }.toSet()
-                val updatedArr = arr.map { it.copy(isTracked = trackedIds.contains(it.id)) }
-                val updatedDep = dep.map { it.copy(isTracked = trackedIds.contains(it.id)) }
+                val cleanArr = com.example.data.util.AirportUtils.deduplicateFlights(arr, handled)
+                val cleanDep = com.example.data.util.AirportUtils.deduplicateFlights(dep, handled)
+
+                val trackedEntities = trackedFlights.value
+                val trackedIds = trackedEntities.map { it.flightId }.toSet()
+                val trackedFltNorms = trackedEntities.map { com.example.data.util.AirportUtils.normalizeFlightNumber(it.flightNumber) }.toSet()
+
+                fun isFlightMarkedTracked(f: Flight): Boolean {
+                    if (trackedIds.contains(f.id)) return true
+                    val norm = com.example.data.util.AirportUtils.normalizeFlightNumber(f.flightNumber)
+                    return trackedFltNorms.contains(norm) && trackedEntities.any {
+                        it.isArrival == f.isArrival && com.example.data.util.AirportUtils.normalizeFlightNumber(it.flightNumber) == norm
+                    }
+                }
+
+                val updatedArr = cleanArr.map { it.copy(isTracked = isFlightMarkedTracked(it)) }
+                val updatedDep = cleanDep.map { it.copy(isTracked = isFlightMarkedTracked(it)) }
 
                 val turns = repository.computeTurnarounds(updatedArr, updatedDep)
 
@@ -128,11 +143,15 @@ class FlightViewModel(application: Application) : AndroidViewModel(application) 
 
     fun toggleTrackFlight(flight: Flight) {
         viewModelScope.launch {
-            val isCurrentlyTracked = trackedFlights.value.any { it.flightId == flight.id }
-            if (isCurrentlyTracked) {
-                repository.untrackFlight(flight.id)
-                FlightAlarmScheduler.cancel10MinuteHeadsUp(getApplication(), flight.id)
-                (getApplication() as? AIXApplication)?.notificationHelper?.removeFlightLiveActivity(flight.id)
+            val norm = com.example.data.util.AirportUtils.normalizeFlightNumber(flight.flightNumber)
+            val matchingEntity = trackedFlights.value.find {
+                it.flightId == flight.id ||
+                (it.isArrival == flight.isArrival && com.example.data.util.AirportUtils.normalizeFlightNumber(it.flightNumber) == norm)
+            }
+            if (matchingEntity != null) {
+                repository.untrackFlight(matchingEntity.flightId)
+                FlightAlarmScheduler.cancel10MinuteHeadsUp(getApplication(), matchingEntity.flightId)
+                (getApplication() as? AIXApplication)?.notificationHelper?.removeFlightLiveActivity(matchingEntity.flightId)
             } else {
                 repository.trackFlight(flight)
                 // Schedule exact 10-minute heads-up alarm that wakes device even if app is offline or closed

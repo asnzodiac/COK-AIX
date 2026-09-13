@@ -54,10 +54,37 @@ data class Flight(
             return ((windowSec - sec) / windowSec).coerceIn(0f, 1f)
         }
 
+    val displayOriginIata: String
+        get() = if (originIata.isBlank() || originIata == "???") {
+            if (!isArrival) "COK" else "???"
+        } else originIata
+
+    val displayDestIata: String
+        get() = if (destIata.isBlank() || destIata == "???") {
+            if (isArrival) "COK" else "???"
+        } else destIata
+
+    val isDivertedToCok: Boolean
+        get() {
+            val s = statusText.lowercase()
+            return s.contains("divert") || s.contains("dvt")
+        }
+
+    val isYetToArriveDelayed: Boolean
+        get() {
+            val nowSec = System.currentTimeMillis() / 1000
+            // Scheduled time is in the past (up to 5 hours earlier), but hasn't arrived/landed yet
+            return isArrival && scheduledTime in (nowSec - 18000)..nowSec &&
+                    (actualTime == 0L || actualTime > nowSec) &&
+                    !statusText.lowercase().contains("land") &&
+                    !statusText.lowercase().contains("cancel")
+        }
+
     val statusCategory: FlightStatusCategory
         get() {
             val s = statusText.lowercase()
             return when {
+                isDivertedToCok -> FlightStatusCategory.DIVERTED
                 s.contains("cancel") -> FlightStatusCategory.CANCELLED
                 s.contains("landed") -> FlightStatusCategory.LANDED
                 delayMinutes > 30 -> FlightStatusCategory.HEAVY_DELAY
@@ -74,5 +101,6 @@ enum class FlightStatusCategory {
     HEAVY_DELAY,
     APPROACHING,
     LANDED,
-    CANCELLED
+    CANCELLED,
+    DIVERTED
 }
