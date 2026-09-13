@@ -213,7 +213,8 @@ fun MainAppScreen(viewModel: FlightViewModel) {
                     onAirlineSelect = { viewModel.setAirlineFilter(it) },
                     onTrackClick = { viewModel.toggleTrackFlight(it) },
                     onFlightClick = { viewModel.selectFlightForDetail(it) },
-                    handledAirlines = uiState.handledAirlines
+                    handledAirlines = uiState.handledAirlines,
+                    isLiveData = uiState.isLiveData
                 )
                 1 -> TrackedScreen(
                     trackedEntities = trackedList,

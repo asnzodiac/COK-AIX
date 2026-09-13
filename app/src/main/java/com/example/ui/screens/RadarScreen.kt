@@ -544,8 +544,8 @@ fun RadarScreen(
                 FlightRadarApi.AIRPORT_COORDS[fl.originIata]
             }
 
-            var distNm = 0f
-            var bearingDeg = 0f
+            var distNm: Float? = null
+            var bearingDeg: Float? = null
             if (targetCoords != null) {
                 val (fLat, fLng) = targetCoords
                 val dLat = Math.toRadians(fLat - cokLat)
@@ -635,11 +635,11 @@ fun RadarScreen(
                     ) {
                         Column {
                             Text("DIST TO COK", fontSize = 8.sp, color = BoardTextDim, fontFamily = FontFamily.Monospace)
-                            Text("${distNm.toInt()} NM", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AviationTeal, fontFamily = FontFamily.Monospace)
+                            Text(distNm?.let { "${it.toInt()} NM" } ?: "–", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AviationTeal, fontFamily = FontFamily.Monospace)
                         }
                         Column {
                             Text("BEARING", fontSize = 8.sp, color = BoardTextDim, fontFamily = FontFamily.Monospace)
-                            Text("${bearingDeg.toInt()}°", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BoardTextPrimary, fontFamily = FontFamily.Monospace)
+                            Text(bearingDeg?.let { "${it.toInt()}°" } ?: "–", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = BoardTextPrimary, fontFamily = FontFamily.Monospace)
                         }
                         Column {
                             Text("ALTITUDE", fontSize = 8.sp, color = BoardTextDim, fontFamily = FontFamily.Monospace)

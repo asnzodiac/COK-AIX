@@ -173,8 +173,6 @@ class NotificationHelper(private val context: Context) {
 
         val alertId = 5000 + (flight.id.hashCode() and 0xFFFF)
         notificationManager.notify(alertId, notification)
-
-        playAlertChime()
     }
 
     fun sendLandedNotification(flight: Flight) {
@@ -228,8 +226,6 @@ class NotificationHelper(private val context: Context) {
 
         val alertId = 7000 + (flight.id.hashCode() and 0xFFFF)
         notificationManager.notify(alertId, notification)
-
-        playAlertChime()
     }
 
     fun removeFlightLiveActivity(flightId: String) {

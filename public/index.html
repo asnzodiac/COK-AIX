@@ -8,9 +8,6 @@
 <meta name="apple-mobile-web-app-title" content="AIX COK"/>
 <meta name="theme-color" content="#0B0B0D"/>
 <title>AIX SEC OPS – COK</title>
-<link rel="manifest" href="./manifest.json"/>
-<link rel="apple-touch-icon" href="./icon-192.png"/>
-<link rel="icon" href="./icon-192.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 
@@ -496,7 +493,6 @@ td:first-child,th:first-child{text-align:left;padding-left:12px}
       <span id="sTxt">Idle</span>
     </div>
     <button class="chip-btn" id="proxyBtn" title="Toggle proxy for iOS/Safari">Proxy: Auto</button>
-    <a class="map-link" href="./map.html" title="Live map">🗺 Map</a>
     <button class="icon-btn" id="refreshBtn" aria-label="Refresh now" title="Refresh now">↻</button>
     <button class="icon-btn" id="themeBtn" aria-label="Toggle theme" title="Toggle theme">◐</button>
     <button class="icon-btn primary" id="notifyBtn" aria-label="Enable notifications" title="Enable notifications">🔔</button>
@@ -675,8 +671,11 @@ function cleanOld(type,tbody){
   const now=Math.floor(Date.now()/1000);
   Array.from(tbody.rows).forEach(r=>{
     const act=parseInt(r.dataset.act)||0;
+    const est=parseInt(r.dataset.est)||0;
+    const sch=parseInt(r.dataset.sch)||0;
     const cutoff=type==='arrivals'? now-10800 : now-600;
-    if(act && act<cutoff) r.remove();
+    const t=act||est||sch;
+    if(t && t<cutoff) r.remove();
   });
 }
 
@@ -774,7 +773,7 @@ function notify(fn,msg){
   if(notified.has(key)) return;
   notified.add(key);
   if(canNotify()&&Notification.permission==='granted'){
-    try{new Notification(`✈ ${fn}`,{body:msg,icon:'icon-192.png'})}catch{}
+    try{new Notification(`✈ ${fn}`,{body:msg})}catch{}
   }
 }
 
@@ -871,7 +870,8 @@ async function loadFlights(type,ts,force=false){
       <td>${etaCell(est,sch,dly)}</td>
       <td>${toIST(sch)}</td>
       <td style="font-size:.65rem">${escapeHtml(model)}</td>
-      <td><span class="badge ${badgeClass(cls)}">${escapeHtml(statusTxt)}</span></td>`;
+      <td><span class="badge ${badgeClass(cls)}">${escapeHtml(statusTxt)}</span></td>
+      ${!isDep ? `<td class="ff-td"><button class="btn" style="padding:2px 8px;font-size:.65rem;line-height:1.2" onclick="typeof followFlight==='function'&&followFlight('${escapeHtml(fn)}','${escapeHtml(reg)}')">Track</button></td>` : ''}`;
     tbody.appendChild(tr);
     added++;
   });
@@ -937,10 +937,13 @@ function buildTurnarounds(){
     if(!rDep.has(reg)) continue;
     const arrs=rArr.get(reg).sort((a,b)=>a.eta-b.eta);
     const deps=rDep.get(reg).sort((a,b)=>a.etd-b.etd);
+    const usedDeps=new Set();
     for(const arr of arrs){
       for(const dep of deps){
+        if(usedDeps.has(dep.fn)) continue;
         const gap=dep.etd-arr.eta;
         if(gap>0 && gap<=9000){ // up to 2.5 hrs
+          usedDeps.add(dep.fn);
           const maxDly=Math.max(arr.dly,dep.dly);
           const cls=rowClass('',maxDly);
           const logo=getLogo(arr.fn);
@@ -961,6 +964,7 @@ function buildTurnarounds(){
             <td><span class="badge ${badgeClass(cls)}">${maxDly>0?'+'+maxDly+'min':'On time'}</span></td>`;
           tbody.appendChild(tr);
           count++;
+          break;
         }
       }
     }
@@ -1057,31 +1061,6 @@ document.querySelectorAll('.tab').forEach(btn=>{
 });
 
 /* ============================================================
-   PWA / SERVICE WORKER
-============================================================ */
-if('serviceWorker' in navigator){
-  window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('./service-worker.js').catch(()=>{});
-  });
-}
-
-let deferredPrompt;
-window.addEventListener('beforeinstallprompt',e=>{
-  e.preventDefault();
-  deferredPrompt=e;
-  const btn=document.createElement('button');
-  btn.className='btn primary';
-  btn.textContent='📲 Install App';
-  btn.style.cssText='position:fixed;bottom:calc(16px + env(safe-area-inset-bottom));right:14px;z-index:500;box-shadow:0 4px 20px rgba(226,57,74,.5)';
-  btn.onclick=()=>{
-    btn.remove();
-    deferredPrompt.prompt();
-    deferredPrompt=null;
-  };
-  document.body.appendChild(btn);
-});
-
-/* ============================================================
    INIT
 ============================================================ */
 if(proxyMode==='auto'&&isIOS){
@@ -1126,6 +1105,5 @@ schedulePoll();
 window.addEventListener('online',()=>{lastFetch.clear();loadAll(true);showToast('Back online – refreshing…');schedulePoll();});
 document.addEventListener('visibilitychange',()=>{ if(!document.hidden){ loadAll(false); } });
 </script>
-<script src="flight-follow.js"></script>
 </body>
 </html>

@@ -70,7 +70,8 @@ fun BoardScreen(
     onTrackClick: (Flight) -> Unit,
     onFlightClick: (Flight) -> Unit,
     modifier: Modifier = Modifier,
-    handledAirlines: Set<String> = emptySet()
+    handledAirlines: Set<String> = emptySet(),
+    isLiveData: Boolean = true
 ) {
     var showArrivals by remember { mutableStateOf(true) }
 
@@ -114,6 +115,28 @@ fun BoardScreen(
             .padding(horizontal = 14.dp)
     ) {
         Spacer(modifier = Modifier.height(10.dp))
+
+        // Demo / offline data indicator banner
+        if (!isLiveData) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(AviationAmber.copy(alpha = 0.15f))
+                    .border(1.dp, AviationAmber.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "⚠ Showing demo data — live feed unavailable",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = AviationAmber
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
 
         // Arrivals / Departures Switcher Tabs
         Row(

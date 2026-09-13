@@ -28,7 +28,7 @@ class FlightTrackingService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private lateinit var repository: FlightRepository
     private lateinit var notificationHelper: NotificationHelper
-    private val notifiedDivertedFlightIds = mutableSetOf<String>()
+    private val notifiedDivertedFlightTimestamps = mutableMapOf<String, Long>()
     private var isFirstDiversionScan = true
 
     companion object {
@@ -122,15 +122,19 @@ class FlightTrackingService : Service() {
         val arrivals = repository.getArrivals()
 
         // 1. Check for diverted flights of handled airlines to current station (e.g. COK)
+        val nowSec = System.currentTimeMillis() / 1000
+        // Prune entries older than 24 hours (86,400s) to prevent memory leak
+        notifiedDivertedFlightTimestamps.entries.removeIf { (nowSec - it.value) > 86400 }
+
         // On cold launch, seed existing diverted flights so launching the app never triggers false notifications
         if (isFirstDiversionScan) {
             isFirstDiversionScan = false
-            arrivals.filter { it.isDivertedToCok }.forEach { notifiedDivertedFlightIds.add(it.id) }
+            arrivals.filter { it.isDivertedToCok }.forEach { notifiedDivertedFlightTimestamps[it.id] = nowSec }
         } else {
             for (flight in arrivals) {
                 // Never notify on mock/fallback flights; notify only when a real flight diverts during active monitoring
-                if (!flight.id.startsWith("fl_") && flight.isDivertedToCok && !notifiedDivertedFlightIds.contains(flight.id)) {
-                    notifiedDivertedFlightIds.add(flight.id)
+                if (!flight.id.startsWith("fl_") && flight.isDivertedToCok && !notifiedDivertedFlightTimestamps.containsKey(flight.id)) {
+                    notifiedDivertedFlightTimestamps[flight.id] = nowSec
                     notificationHelper.sendDiversionAlertNotification(flight, selectedStation)
                 }
             }
@@ -150,7 +154,6 @@ class FlightTrackingService : Service() {
 
         val arrivalsMap = arrivals.associateBy { it.id }
 
-        val nowSec = System.currentTimeMillis() / 1000
         var closestFlight: Flight? = null
         var minRemaining = Long.MAX_VALUE
 

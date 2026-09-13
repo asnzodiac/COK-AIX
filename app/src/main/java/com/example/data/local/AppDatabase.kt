@@ -15,6 +15,11 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
+                // GUARDRAIL / KNOWN DATA-LOSS RISK FOR v1:
+                // fallbackToDestructiveMigration() is temporarily left in place for v1 initial prototyping,
+                // but WILL WIPE all user-tracked flights on any schema bump (e.g. v1 -> v2).
+                // Before incrementing version above 1, an explicit Migration(1, 2) implementation
+                // MUST be added to Room.databaseBuilder().addMigrations(...) to protect operational data.
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,

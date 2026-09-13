@@ -168,7 +168,7 @@ fun OperationsSpecDialog(
                     accentColor = AviationEmerald
                 ) {
                     Text(
-                        text = "Pairs inbound arrivals with outbound departures matching tail registration (e.g. VT-AXP):\n• gapMinutes = (dep.bestEta - arr.bestEta) / 60\n• Risk Tiers:\n   < 35 min: CRITICAL DELAY RISK\n   35 - 55 min: TIGHT TURNAROUND\n   > 55 min: NORMAL GROUND BUFFER",
+                        text = "Pairs inbound arrivals with outbound departures matching tail registration (e.g. VT-AXP):\n• gapMinutes = (dep.bestEta - arr.bestEta) / 60\n• Sector-specific thresholds:\n   Domestic Sectors (Std: 30 min):\n     < 20 min: CRITICAL TIGHT\n     20 - 30 min: TIGHT TURNAROUND\n     > 30 min: NORMAL GROUND BUFFER\n   International Sectors (Std: 60 min):\n     < 40 min: CRITICAL TIGHT\n     40 - 60 min: TIGHT TURNAROUND\n     > 60 min: NORMAL GROUND BUFFER\n• DELAY RISK: Inbound delay exceeds buffer or max delay > 25 min",
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         color = BoardTextPrimary,

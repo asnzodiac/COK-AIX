@@ -88,8 +88,11 @@ class FlightRepository(private val context: Context) {
         return defaults
     }
 
+    var isLastFetchLiveData: Boolean = true
+        private set
+
     fun isAirlineHandled(flightNumber: String, airlineCode: String?, handled: Set<String>): Boolean {
-        if (handled.isEmpty()) return true
+        if (handled.isEmpty()) return false
         val codeFromNum = flightNumber.trim().replace("\\s+".toRegex(), "").take(2).uppercase()
         val codeDirect = airlineCode?.trim()?.uppercase() ?: ""
         return handled.contains(codeFromNum) || (codeDirect.isNotEmpty() && handled.contains(codeDirect))
@@ -97,7 +100,9 @@ class FlightRepository(private val context: Context) {
 
     suspend fun getArrivals(airport: String = getSelectedAirport()): List<Flight> {
         val live = api.fetchAirportSchedule(airport, "arrivals")
-        val raw = if (live.isNotEmpty()) live else getFallbackArrivals(airport)
+        val isLive = live.isNotEmpty()
+        isLastFetchLiveData = isLive
+        val raw = if (isLive) live else getFallbackArrivals(airport)
         val handled = getHandledAirlines()
         val filtered = raw.filter { isAirlineHandled(it.flightNumber, it.airlineCode, handled) }
         return AirportUtils.deduplicateFlights(filtered, handled)
@@ -105,7 +110,11 @@ class FlightRepository(private val context: Context) {
 
     suspend fun getDepartures(airport: String = getSelectedAirport()): List<Flight> {
         val live = api.fetchAirportSchedule(airport, "departures")
-        val raw = if (live.isNotEmpty()) live else getFallbackDepartures(airport)
+        val isLive = live.isNotEmpty()
+        if (isLive) {
+            isLastFetchLiveData = true
+        }
+        val raw = if (isLive) live else getFallbackDepartures(airport)
         val handled = getHandledAirlines()
         val filtered = raw.filter { isAirlineHandled(it.flightNumber, it.airlineCode, handled) }
         return AirportUtils.deduplicateFlights(filtered, handled)

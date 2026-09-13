@@ -30,6 +30,7 @@ data class FlightUiState(
     val departures: List<Flight> = emptyList(),
     val turnarounds: List<Turnaround> = emptyList(),
     val isLoading: Boolean = false,
+    val isLiveData: Boolean = true,
     val lastUpdatedIST: String = "",
     val errorMessage: String? = null,
     val selectedTab: Int = 0, // 0: Board, 1: Tracked/Live Activity, 2: Radar, 3: Turnaround
@@ -126,6 +127,7 @@ class FlightViewModel(application: Application) : AndroidViewModel(application) 
                         departures = updatedDep,
                         turnarounds = turns,
                         isLoading = false,
+                        isLiveData = repository.isLastFetchLiveData,
                         lastUpdatedIST = timeIST,
                         errorMessage = if (updatedArr.isEmpty() && updatedDep.isEmpty()) "No flights found or network offline" else null
                     )
@@ -134,6 +136,7 @@ class FlightViewModel(application: Application) : AndroidViewModel(application) 
                 _uiState.update {
                     it.copy(
                         isLoading = false,
+                        isLiveData = false,
                         errorMessage = "Fetch error: ${e.localizedMessage ?: "Unknown error"}"
                     )
                 }
