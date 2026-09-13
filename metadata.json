@@ -1,0 +1,8 @@
+{
+  "name": "AIX SEC OPS",
+  "description": "Cochin (COK) flight security ops, live activity notifications, multi-flight tracking, radar map, and 10-minute ETA Discord webhook alerts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
